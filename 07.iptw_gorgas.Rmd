@@ -1,0 +1,610 @@
+---
+title: "Untitled"
+author: "jose"
+date: "19/4/2021"
+output:
+  html_document:
+    toc: yes
+    toc_float: yes
+  pdf_document:
+    toc: yes
+---
+
+```{r, warning=F, message=F, error=F}
+library(tidyverse)
+library(sandwich)
+library(survival)
+library(survminer)
+library(broom)
+
+df_subcohorte<- utils::read.csv("../df_intermedias/df_subcohorte.gorgas.csv")
+df_cohortegeneral<- utils::read.csv("../df_intermedias/df_cohortegeneral.gorgas.csv")
+```
+
+# MAIN COHORT
+```{r, warning=F, message=F, error=F, echo=F}
+# Solo los ID negativos en la semana 1 (cohorte general)
+neg_person.id<-df_cohortegeneral %>% 
+  mutate(categoria_n = ifelse(categoria_v == 1|categoria_f == 1,1,0)) %>% 
+  select(person.id,sample.week,categoria_n) %>% spread(sample.week,categoria_n) %>% filter(`1`== 0) %>% select(person.id)
+
+# Base con los negativos con resultados de inf. por semana
+df_cohortegeneral.negativos <- df_cohortegeneral %>% inner_join(neg_person.id, by = "person.id") %>% 
+  
+  filter(!is.na(travel.month)) %>% 
+  mutate(categoria_n = ifelse(categoria_v == 1|categoria_f == 1,1,0)) %>%
+  select(person.id,sample.week,id_house,travel.month.destination,travel.month.reason,travel.month.number,tiempo.total,
+         travel.transportation,travel.month,Sexo,Edad,Ocupacion,trabajo,mazan.trabajo,mazan.24horas,categoria_n,
+         travel.month.sleep.place,categoria_v,categoria_f,nacimiento_comunidad,microscopy.especies.1) %>% 
+  
+  group_by(person.id) %>%
+  mutate(categoria_n=max(categoria_n, na.rm = TRUE),
+         microscopia = max(microscopy.especies.1),
+         vivax = max(categoria_v, na.rm = T),
+         falciparum=max(categoria_f, na.rm = T),
+         mazan.trabajo = ifelse(mazan.trabajo=="Si",1,0),
+         mazan.24horas = ifelse(mazan.24horas=="Si",1,0),
+         travel.reason = ifelse(travel.month.reason ==3,1,0),
+         travel.number = ifelse(travel.month.number > 3,1,0),
+         travel.destination = ifelse(travel.month.destination == "Mazan",1,0),
+         
+         trave.transportation = ifelse(travel.transportation == "No viajo" & travel.month == "No",0, # No viajo/uso transporte
+                                       ifelse(travel.transportation == "bote a motor",1,
+                                              ifelse(travel.transportation == "no motorizado",2,3))),
+         
+         travel.month.sleep = ifelse(travel.month.sleep.place == "No viajo" | travel.month.sleep.place == "Casa",0,1), # 0: no durmio fuera , 1: Durmio fuera
+        
+         # Salio a mazan por trabajo al menos una vez
+          m.t=max(mazan.trabajo),
+         # Salio a mazan >24 horas al menos una vez
+         m.24=max(mazan.24horas),
+         # Salio mas de 4 veces al menos una vez
+         t.number = max(travel.number, na.rm = T),
+         # Salio a Mazan al menos una vez
+         t.destination  = max(travel.destination, na.rm = T),
+         # Salio por trabajo al menos una vez
+         t.reason = max(travel.reason, na.rm = T),
+         # Uso al menos una vez bote sin motor (2) o siempre bote motorizado (1)
+         t.transportation = max(trave.transportation),
+         # Durmio al salir de viaje siempre en casa o afuera
+         t.sleep = max(travel.month.sleep),
+         # tiempo maximo de viaje por ID
+         t.time = max(tiempo.total, na.rm = T)) 
+
+
+# Base filtrada con los casos reportados (sin NAs)
+a<-df_cohortegeneral.negativos %>% 
+  
+  filter(!is.na(categoria_v)) %>% 
+  
+  mutate(categoria_n = ifelse(categoria_v == 1|categoria_f == 1,1,0),
+         
+         # Nueva variable de semanas de seguimiento (con resultado de PCR)
+         semana.s = 1:n()) %>% ungroup()
+
+
+# Calculando el tiempo a evento: Considerando 8 semanas (sweek) y solo las semanas con resultado
+# de PCR (fw)
+semanascaso<- a %>% filter(categoria_n == 1) %>% group_by(person.id) %>% select(person.id,sample.week,semana.s,categoria_n) %>% 
+  
+  filter(semana.s == min(semana.s) & sample.week== min(sample.week)) %>% 
+  
+  mutate(sweek=sample.week, fw =semana.s) %>% 
+  
+  select(person.id,sweek, fw)
+
+# df del numero de semanas con resultado de PCR de los que nunca tuvieron una inf.
+semanacaso2<- a %>% group_by(person.id) %>% summarise(semana.sc = max(semana.s))
+  
+```
+
+
+```{r, warning=F, message=F, error=F}
+# Base final: Incidencia acumulada y tiempo a evento (D. incidencia)
+df_cohortegeneral.negativos2<- 
+  
+  df_cohortegeneral.negativos%>% slice(1) %>%
+  
+  #Agregar semanas de seguimiento totales (sweek) y efectivas (fw)
+  
+  left_join(semanascaso, by = "person.id") %>% 
+  left_join(semanacaso2, by = "person.id") %>% 
+  
+  mutate(sweek = replace_na(sweek,8),
+         fw = replace_na(fw, semana.sc)) %>% select(-semana.sc) %>%
+  
+  left_join(df_subcohorte %>% select(person.id,TipoMovimiento), by="person.id") %>% 
+  
+  group_by(person.id) %>% 
+  
+  slice(1) %>% ungroup() %>% 
+  
+  mutate(t.movimiento = ifelse(TipoMovimiento == "Comunitario.p",0,1))
+
+```
+
+# IPTW
+```{r, warning=F, message=F, error=F}
+
+m<-glm(factor(m.t) ~ Sexo + Edad + t.number  + t.transportation + trabajo, family = binomial(), data =df_cohortegeneral.negativos2)
+
+jtools::summ(m, robust = T, exp = T)
+
+df_cohortegeneral.negativos2$prd.mt <- predict(m, type = "response")
+df_cohortegeneral.negativos2$pmt <- mean(df_cohortegeneral.negativos2$m.t)
+
+
+df_cohortegeneral.negativos2<-
+  
+  df_cohortegeneral.negativos2 %>% mutate(w.mt = ifelse(m.t == 1, 
+                                                      1/prd.mt,NA),
+                                          
+                                          w.mt = ifelse(m.t == 0,
+                                                      1/(1-prd.mt),w.mt))
+
+
+
+```
+
+```{r, warning=F, message=F, error=F}
+n<- glm(m.24 ~ Sexo + Edad  + t.number + t.reason + t.transportation + trabajo, family = binomial(), data =df_cohortegeneral.negativos2)
+
+#jtools::summ(n, robust = T, exp = T)
+
+df_cohortegeneral.negativos2$prd.m24 <- predict(n, type = "response")
+df_cohortegeneral.negativos2$pm24 <- mean(df_cohortegeneral.negativos2$m.24)
+
+df_cohortegeneral.negativos2<-
+  
+  df_cohortegeneral.negativos2 %>% mutate(w.m24 = ifelse(m.24 == 1, 
+                                                      1/prd.m24,NA),
+                                          
+                                          w.m24 = ifelse(m.24 == 0,
+                                                      1/(1-prd.m24),w.mt))
+```
+
+```{r}
+o <- glm(t.number ~ t.reason + travel.month + trabajo, family = binomial(), data =df_cohortegeneral.negativos2)
+
+#jtools::summ(o, robust = T, exp = T)
+
+df_cohortegeneral.negativos2$prd.numb <- predict(o, type = "response")
+df_cohortegeneral.negativos2$pnumber <- mean(df_cohortegeneral.negativos2$t.number)
+
+df_cohortegeneral.negativos2<-
+  
+  df_cohortegeneral.negativos2 %>% mutate(w.numb = ifelse(t.number == 1, 
+                                                      1/prd.numb,NA),
+                                          
+                                          w.numb = ifelse(t.number == 0,
+                                                      1/(1-prd.numb),w.numb))
+```
+
+
+```{r}
+p <- glm(t.sleep ~ travel.month + t.destination + t.transportation + t.time + trabajo, family = binomial(), 
+         data =df_cohortegeneral.negativos2)
+
+#jtools::summ(p, robust = T, exp = T)
+
+df_cohortegeneral.negativos2$prd.tsleep <- predict(p, type = "response")
+df_cohortegeneral.negativos2$psleep <- mean(df_cohortegeneral.negativos2$t.sleep)
+
+df_cohortegeneral.negativos2<-
+  
+  df_cohortegeneral.negativos2 %>% mutate(w.sleep = ifelse(t.sleep == 1, 
+                                                      1/prd.tsleep,NA),
+                                          
+                                          w.sleep = ifelse(t.sleep == 0,
+                                                      1/(1-prd.tsleep),w.sleep))
+
+```
+
+
+```{r}
+q <- glm(t.movimiento ~ t.reason + t.transportation + 
+           
+            trabajo + #Sexo
+           
+           t.destination + Edad + t.number ,
+         
+         family = binomial(), data =df_cohortegeneral.negativos2)
+
+
+dat<-df_cohortegeneral.negativos2 %>% filter(!is.na(t.movimiento)) %>% 
+  mutate(prd.mov = predict(q, na.omit = T, type = "response")) %>% select(person.id,prd.mov)
+
+df_cohortegeneral.negativos2$pmov <- mean(df_cohortegeneral.negativos2$t.movimiento, na.rm = T)
+
+df_cohortegeneral.negativos2<-
+  
+  df_cohortegeneral.negativos2 %>% left_join(dat, by = "person.id") %>% 
+  
+  mutate(w.movtype = ifelse(t.movimiento == 1,
+                            1/prd.mov,NA),
+         
+         w.movtype = ifelse(t.movimiento == 0,
+                            1/(1-prd.mov),w.movtype))
+```
+
+```{r}
+r <- glm(t.destination ~ travel.month  + nacimiento_comunidad + t.transportation + trabajo, family = binomial(), 
+         data =df_cohortegeneral.negativos2)
+
+#jtools::summ(r, robust = T, exp = T)
+
+df_cohortegeneral.negativos2$prd.tdest <- predict(r, type = "response")
+df_cohortegeneral.negativos2$pdestination <- mean(df_cohortegeneral.negativos2$t.destination)
+
+
+df_cohortegeneral.negativos2<-
+  
+  df_cohortegeneral.negativos2 %>% mutate(w.destino = ifelse(t.destination == 1, 
+                                                      1/prd.tdest,NA),
+                                          
+                                          w.destino = ifelse(t.destination == 0,
+                                                      1/(1-prd.tdest),w.destino))
+```
+
+```{r}
+s <- glm(t.reason ~ travel.month  + trabajo + nacimiento_comunidad + Edad, 
+         
+         #+ Sexo,
+         
+         family = binomial(), 
+         data =df_cohortegeneral.negativos2)
+
+
+#jtools::summ(s, robust = T, exp = T)
+
+df_cohortegeneral.negativos2$prd.reason <- predict(s, type = "response")
+df_cohortegeneral.negativos2$preason <- mean(df_cohortegeneral.negativos2$t.reason)
+
+df_cohortegeneral.negativos2<-
+  
+  df_cohortegeneral.negativos2 %>% mutate(w.reason = ifelse(t.reason == 1, 
+                                                      1/prd.reason,NA),
+                                          
+                                          w.reason = ifelse(t.reason == 0,
+                                                      1/(1-prd.reason),w.destino))
+```
+
+```{r}
+t <- glm(factor(t.transportation) ~ trabajo + travel.month + t.destination, family = binomial(),
+         data =df_cohortegeneral.negativos2)
+
+#jtools::summ(t, robust = T, exp = T)
+
+df_cohortegeneral.negativos2$prd.transp <- predict(t, type = "response")
+df_cohortegeneral.negativos2$ptransp <- mean(df_cohortegeneral.negativos2$t.transportation)
+
+
+df_cohortegeneral.negativos2<-
+  
+  df_cohortegeneral.negativos2 %>% mutate(t.transportation = ifelse(t.transportation == 2,1,0),
+                                          w.transp = ifelse(t.transportation == 1, 
+                                                      1/prd.transp,NA),
+                                          
+                                          w.transp = ifelse(t.transportation == 0,
+                                                      1/(1-prd.transp),w.transp))
+
+
+```
+
+
+## Modelos
+
+### Modelo IC
+
+```{r}
+# modelos para cada P.M. generado (Incidencia acumulada)
+a<-glm(categoria_n ~ m.t, family = poisson, weights = w.mt, data = df_cohortegeneral.negativos2) 
+b<-glm(categoria_n ~ m.24, family = poisson, weights = w.m24, data = df_cohortegeneral.negativos2)
+c<-glm(categoria_n ~ t.number  , family = poisson, weights = w.numb, data = df_cohortegeneral.negativos2)
+d<-glm(categoria_n ~ t.sleep , weights = w.sleep, family = poisson, data = df_cohortegeneral.negativos2)
+e<-glm(categoria_n ~ t.movimiento, family = poisson, weights = w.movtype,  data = df_cohortegeneral.negativos2)
+f<-glm(categoria_n ~ t.destination , weights = w.destino, family = poisson, data = df_cohortegeneral.negativos2)
+g<-glm(categoria_n ~ t.reason , weights = w.reason, family = poisson, data = df_cohortegeneral.negativos2)
+h<-glm(categoria_n ~ t.transportation , weights =w.transp,  family = poisson, data = df_cohortegeneral.negativos2)
+
+sjPlot::tab_model(a,b,c,d,e,f,g,h,show.dev = T)
+
+# df para el forest plot
+list <- list(a,b,c,d,e,f,g,h)
+
+df1 <-  map_df(.x = list,
+               #.f = ~broom::tidy(lmtest::coeftest(.x, vcov = vcovHC, type = "HC2"), conf.int = T)
+               .f = ~broom::tidy(x = .x, conf.int = T)) %>% 
+  
+  filter(!term == "(Intercept)") %>% 
+  
+  select(term,estimate,conf.low,conf.high,p.value) %>%
+  
+  mutate(modeltype = "C.Incidence")
+
+
+
+
+
+```
+
+### Modelo I.D
+
+```{r,warning=F, message=F, error=F}
+i<-glm(categoria_n ~ m.t, family = poisson, weights = w.mt, offset = log(fw), data = df_cohortegeneral.negativos2) 
+j<-glm(categoria_n ~ m.24, family = poisson, weights = w.m24, offset = log(fw),data = df_cohortegeneral.negativos2) 
+k<-glm(categoria_n ~ t.number  , family = poisson, weights = w.numb, offset = log(fw),data = df_cohortegeneral.negativos2) 
+l<-glm(categoria_n ~ t.sleep , weights = w.sleep, family = poisson,offset = log(fw), data = df_cohortegeneral.negativos2) 
+m<-glm(categoria_n ~ t.movimiento, family = poisson, weights = w.movtype,offset = log(fw),  data = df_cohortegeneral.negativos2) 
+n<-glm(categoria_n ~ t.destination , weights = w.destino, family = poisson,offset = log(fw), data = df_cohortegeneral.negativos2) 
+o<-glm(categoria_n ~ t.reason , weights = w.reason, family = poisson,offset = log(fw), data = df_cohortegeneral.negativos2) 
+p<-glm(categoria_n ~ t.transportation , weights =w.transp,  family = poisson,offset = log(fw), data = df_cohortegeneral.negativos2) 
+
+sjPlot::tab_model(i,j,k,l,m,n,o,p,show.dev = T)
+
+# df para el forest plot
+list <- list(i,j,k,l,m,n,o,p)
+
+df2 <-  map_df(.x = list,
+               .f = ~broom::tidy(x = .x, conf.int = T)) %>% 
+  
+  filter(!term == "(Intercept)") %>% 
+  
+  select(term,estimate,conf.low,conf.high,p.value) %>%
+  
+  mutate(modeltype = "I.Density")
+
+jtools::summ(p, exp  = T, robust = T)
+```
+
+### Modelo Cox
+```{r}
+
+q<-coxph(Surv(sweek, categoria_n) ~ m.t,weights = w.mt, data = df_cohortegeneral.negativos2) 
+r<-coxph(Surv(sweek, categoria_n) ~ m.24, weights = w.m24, data = df_cohortegeneral.negativos2) 
+s<-coxph(Surv(sweek, categoria_n) ~ t.number, weights = w.numb, data = df_cohortegeneral.negativos2) 
+t<-coxph(Surv(sweek, categoria_n) ~ t.sleep, weights = w.sleep, data = df_cohortegeneral.negativos2) 
+u<-coxph(Surv(sweek, categoria_n) ~ t.movimiento, weights = w.movtype, data = df_cohortegeneral.negativos2) 
+v<-coxph(Surv(sweek, categoria_n) ~ t.destination, weights = w.destino, data = df_cohortegeneral.negativos2) 
+w<-coxph(Surv(sweek, categoria_n) ~ t.reason, weights = w.reason, data = df_cohortegeneral.negativos2) 
+x<-coxph(Surv(sweek, categoria_n) ~ t.transportation, weights = w.transp, data = df_cohortegeneral.negativos2) 
+
+
+# df para el forest plot
+list <- list(q,r,s,t,u,v,w,x)
+
+df3 <-  map_df(.x = list,
+               .f = ~broom::tidy(x = .x, conf.int = T)) %>% 
+  
+  filter(!term == "(Intercept)") %>% 
+  
+  select(term,estimate,conf.low,conf.high,p.value) %>%
+  
+  mutate(modeltype = "Cox model")
+
+
+table(df_cohortegeneral.negativos2$t.movimiento)
+
+
+```
+
+## Graficos
+
+### Grafico KM
+```{r, warning=F, message=F, error=F}
+
+
+q<-survfit(Surv(sweek, categoria_n) ~ factor(m.t),weights = w.mt, data = df_cohortegeneral.negativos2)
+r<-survfit(Surv(sweek, categoria_n) ~ factor(m.24), weights = w.m24, data = df_cohortegeneral.negativos2)
+s<-survfit(Surv(sweek, categoria_n) ~ factor(t.number), weights = w.numb, data = df_cohortegeneral.negativos2)
+t<-survfit(Surv(sweek, categoria_n) ~ factor(t.sleep), weights = w.sleep, data = df_cohortegeneral.negativos2)
+u<-survfit(Surv(sweek, categoria_n) ~ factor(t.movimiento), weights = w.movtype, data = df_cohortegeneral.negativos2)
+v<-survfit(Surv(sweek, categoria_n) ~ factor(t.destination), weights = w.destino, data = df_cohortegeneral.negativos2)
+w<-survfit(Surv(sweek, categoria_n) ~ factor(t.reason), weights = w.reason, data = df_cohortegeneral.negativos2)
+x<-survfit(Surv(sweek, categoria_n) ~ factor(t.transportation), weights = w.transp, data = df_cohortegeneral.negativos2)
+
+
+fits <- list(q,r,s,t,u,v,w,x)
+legend.title <- list("Mazan\nto work","Mazan for\n>24 hours","Travel number\n>=4","Travel sleep\nplace (out)",
+                     "Displacement\npattern*","Travel to\nMazan","Travel not\nto work","Travel in\nmotorized\nboat")
+
+labels <- list("No","Yes")
+
+labels.yy <- list(labels,labels,labels,labels,labels,labels,labels,labels)
+
+yy<-ggsurvplot_list(
+    fit = fits, 
+    data = df_cohortegeneral.negativos2,
+    legend.title = legend.title,
+    xlab = "Weeks", 
+    ylab = "Overall survival probability",
+     palette = c("#91c788", "#2f5d62"),
+    conf.int = TRUE,
+     pval = TRUE,
+     #risk.table = TRUE,
+     #risk.table.col = "strata",
+    legend.labs = labels.yy,
+     #risk.table.height = 0.25,
+    ggtheme = theme_bw())
+
+
+
+
+```
+
+
+
+### Grafico forestplot
+```{r}
+df4<- bind_rows(df1,df2,df3) %>% 
+  
+  mutate(
+     term2 = ifelse(term =="m.t","Mazan not\nfor work\n(Ref=No)",
+                    ifelse(term =="m.24","Mazan for\n>24 hours\n(Ref=No)",
+                           ifelse(term=="t.number","Number of\ntravels\n>=4\n(Ref=No)",
+                                  ifelse(term=="t.sleep","Outside\nsleep place\nduring travel\n(Ref=No)",
+                                         ifelse(term=="t.movimiento","Displacement\npattern*\n(Ref=No)",
+                                                ifelse(term=="t.destination","Travel to\nMazan\n(Ref=No)",
+                                                       ifelse(term=="t.reason","Travel\nto work\n(Ref=No)",
+                                                              ifelse(term=="t.transportation","Travel in\nmotorized boat\n(Ref=No)",NA)))))))),
+     
+     
+     
+     modeltype2 = factor(modeltype, levels = c("C.Incidence","I.Density","Cox model"), 
+                        
+                                  labels = c("Incidence Proportion\nRatio (IPR)",
+                                             "Incidence Rate\nRatio (IRR)",
+                                             "Hazard Ratio (HR)"))) 
+
+
+
+rr<-ggplot(data = df4, mapping = aes(x = modeltype2, y = estimate, ymin = conf.low, ymax = conf.high)) + 
+  
+  geom_pointrange(aes(col=modeltype2))+
+
+  geom_hline(aes(fill=modeltype2),yintercept =0, linetype=2) +
+
+  
+  labs(x ="Mobility pattern", y ="Coefficients (linear scale)") + 
+  
+  geom_linerange(aes(ymin=conf.low, ymax=conf.high,col=modeltype2),width=0.5,cex=1.5) +
+  
+  scale_color_manual(values = c("#766161","#cdc7be","#87a7b3")) + 
+  
+  facet_grid(rows = vars(reorder(term2,-estimate)), scales = "free_y", space = "free_y", switch = "y")+
+  
+  ylim(-2,5)+ coord_flip() +
+  
+  labs(col = "Model Type") + 
+  
+  theme_minimal() + 
+  
+  #guides(col = guide_legend(reverse = TRUE)) + 
+
+  theme(
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        legend.position = "bottom",
+        axis.text.y=element_blank(),
+        axis.line=element_line(),
+        strip.placement = "outside",
+        axis.text.x=element_text(face="bold"),
+        strip.text.y = element_text(vjust = 1,size = 10,face="bold"))
+  
+  
+rr
+```
+
+
+### Grafico heatmap
+```{r}
+tt<-df4 %>% mutate(estimate=exp(round(estimate,2)),
+               conf.low = round(conf.low,2),
+               conf.high = round(conf.high,2),
+               Beta = paste0(round(estimate,2)," ","[",conf.low,"-",conf.high,"]"),
+               
+                modeltype = factor(modeltype, levels = c("C.Incidence","I.Density","Cox model"), 
+                        
+                                  labels = c("Incidence Proportion\nRatio (IPR)",
+                                             "Incidence Rate\nRatio (IRR)",
+                                             "Hazard Ratio (HR)"))) %>% 
+  
+  
+  
+  
+  ggplot(aes(x=modeltype,y=reorder(term2, +estimate),fill = estimate)) + 
+  
+  geom_tile() +
+  
+  scale_fill_gradient2(high  ="#0C6291",low = "#A63446", limits =c(1.1,8.3)) + 
+  #scale_fill_distiller(type = "div", palette = "RdBu", direction = -1, limits = c(1,6)) + 
+
+  
+  geom_text(aes(label = formatC(round(estimate,2), format = "f", digits = 2)), size = 3.8) + 
+  
+  labs(x = "", y = "", fill = "exp(coefficients)") +
+
+  
+  scale_x_discrete(position = "top") +
+
+  
+  theme_minimal() +
+  
+  theme(plot.margin = margin(0, 0, 0, 0),
+        legend.position = "bottom",
+        panel.grid.major=element_blank(),
+        panel.grid.minor=element_blank(),
+        strip.text.x = element_text(size =12, face = "bold"))
+
+
+```
+
+### Tabla de viajes 
+
+```{r,warning=F, message=F, error=F}
+df_cohortegeneral.negativos2 %>% 
+  
+  select(m.t,m.24,t.number,t.sleep,t.movimiento,t.destination,t.reason,t.transportation,categoria_n,fw) %>% 
+  
+  mutate(m.t = as.factor(m.t),
+         m.24 = as.factor(m.24),
+         t.number = as.factor(t.number),
+         t.sleep = as.factor(t.sleep),
+         t.movimiento = as.factor(t.movimiento),
+         t.destination = as.factor(t.destination),
+         t.reason = as.factor(t.reason),
+         t.transportation = as.factor(t.transportation)) %>% 
+  
+  gtsummary::tbl_summary(by = categoria_n, missing = "no",
+                         
+                         percent = "col") %>% 
+  
+  gtsummary::add_n() %>% 
+  
+  gtsummary::add_overall() 
+  
+
+df_cohortegeneral.negativos2 %>% group_by(m.t) %>% summarise(fw1 = sum(w.mt))
+
+df_cohortegeneral.negativos2 %>% group_by(m.24) %>% summarise(fw1 = sum(w.m24))
+
+df_cohortegeneral.negativos2 %>% group_by(t.number) %>% summarise(fw1 = sum(w.numb))
+
+df_cohortegeneral.negativos2 %>% group_by(t.sleep) %>% summarise(fw1 = sum(w.sleep))
+
+df_cohortegeneral.negativos2 %>% group_by(t.movimiento) %>% summarise(fw1 = sum(w.movtype))
+
+df_cohortegeneral.negativos2 %>% group_by(t.destination) %>% summarise(fw1 = sum(w.destino))
+
+df_cohortegeneral.negativos2 %>% group_by(t.reason) %>% summarise(fw1 = sum(w.reason))
+
+df_cohortegeneral.negativos2 %>% group_by(t.transportation) %>% summarise(fw1 = sum(w.transp))
+
+
+df_cohortegeneral.negativos2 %>% select(person.id,categoria_n,fw) %>% group_by(categoria_n) %>% summarise(n = median(fw))
+
+
+df_cohortegeneral.negativos2 %>% select(person.id,microscopia,categoria_n) %>% gtsummary::tbl_summary()
+```
+
+### Union graficos
+
+```{r,warning=F, message=F, error=F}
+library(patchwork)
+
+qq<-rr + tt + plot_layout(widths = c(2,1))
+
+
+
+ss<-arrange_ggsurvplots(yy, ncol = 4, nrow = 2)
+
+
+
+```
+
+### Guardar graficos
+```{r,warning=F, message=F, error=F}
+ggsave(filename = "grafico7.png",plot = qq,path = "C:/Users/Usuario/Dropbox/LIS-GORGAS/GORGAS_ jm/GORGAS.metodos/",width = 13,height = 10.5)
+ggsave(filename = "grafico8.png",plot = ss,path = "C:/Users/Usuario/Dropbox/LIS-GORGAS/GORGAS_ jm/GORGAS.metodos/",width = 16,height = 8)
+```
+
