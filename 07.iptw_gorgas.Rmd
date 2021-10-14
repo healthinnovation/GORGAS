@@ -17,8 +17,8 @@ library(survival)
 library(survminer)
 library(broom)
 
-df_subcohorte<- utils::read.csv("../df_intermedias/df_subcohorte.gorgas.csv")
-df_cohortegeneral<- utils::read.csv("../df_intermedias/df_cohortegeneral.gorgas.csv")
+df_subcohorte<- utils::read.csv("models_data/df_subcohorte.gorgas.csv")
+df_cohortegeneral<- utils::read.csv("models_data//df_cohortegeneral.gorgas.csv")
 ```
 
 # MAIN COHORT
