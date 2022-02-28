@@ -1,2 +1,6 @@
-# GORGAS
-Quantifying the effect of Human Population Mobility on Malaria risk in the Peruvian Amazon
+# GORGAS - Quantifying the effect of Human Population Mobility on Malaria risk in the Peruvian Amazon
+
+## Study description
+The impact of Human population movement (HPM) on the epidemiology of vector-borne diseases, such as malaria, has been described. However, there are limited data on the use of new technologies for the study of HPM in endemic areas with difficult access such as the Amazon. In this study conducted in rural Peruvian Amazon, we used self-reported travel surveys and GPS trackers coupled with a Bayesian spatial model to quantify the role of HPM on the malaria risk. By using a densely sampled population cohort, this study highlighted the elevated malaria transmission in a riverine community of the Peruvian Amazon. We also found that the high connectivity between Amazon communities for reasons such as work, trading or family plausibly sustain such transmission levels. Finally, by using multiple human mobility metrics including GPS-trackers, and adapted causal inference methods we identified for the first time the effect of human mobility patterns on malaria risk in rural Peruvian Amazon. This study provides evidence of the causal effect of HPM on malaria that may help to adapt current malaria control programs in the Amazon.
+
+![Aquí la descripción de la imagen por si no carga](https://github.com/healthinnovation/GORGAS/blob/main/Figures/Fig%203.pdf)
