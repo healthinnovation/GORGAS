@@ -5,9 +5,12 @@ The impact of Human population movement (HPM) on the epidemiology of vector-born
 
 ![](https://github.com/healthinnovation/GORGAS/blob/main/Figures/Fig%203.png)
 
+> A. Cumulative distance and time traveled by subcohort participants during the whole study by infection status. B. Distance and time traveled weekly by participants in the subcohort during the whole study by infection status. C. Trajectories of selected participants outside the village taking into account the type of mobility pattern performed and the distance from Gamitanacocha (Red buffer: 3 km, Blue buffer: 10 km, Violet buffer: 20 km).
+
 ## R enviroment and version
 
-<platform       x86_64-w64-mingw32          
+```
+platform       x86_64-w64-mingw32          
 arch           x86_64                      
 os             mingw32                     
 system         x86_64, mingw32             
@@ -20,4 +23,5 @@ day            10
 svn rev        79318                       
 language       R                           
 version.string R version 4.0.3 (2020-10-10)
-nickname       Bunny-Wunnies Freak Out   >
+nickname       Bunny-Wunnies Freak Out
+```
