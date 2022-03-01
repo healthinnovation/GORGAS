@@ -7,6 +7,24 @@ The impact of Human population movement (HPM) on the epidemiology of vector-born
 
 > A. Cumulative distance and time traveled by subcohort participants during the whole study by infection status. B. Distance and time traveled weekly by participants in the subcohort during the whole study by infection status. C. Trajectories of selected participants outside the village taking into account the type of mobility pattern performed and the distance from Gamitanacocha (Red buffer: 3 km, Blue buffer: 10 km, Violet buffer: 20 km).
 
+## Repository structure
+
+1. Figure 
+   - Fig 1.pdf - Map of the Amazon showing the location of Gamitanacocha and the main communities visited by the participants. 
+   - Fig 2.pdf - Cases per species detected by PCR of the 50 participants. 
+   - Fig 3.pdf - Cumulative distance and time traveled by subcohort participants and trajectories of selected participants outside the village taking into account the type of mobility pattern performed and the distance from Gamitanacocha 
+   - Fig 3.png - Cumulative distance and time traveled by subcohort participants and trajectories of selected participants outside the village taking into account the type of mobility pattern performed and the distance from Gamitanacocha 
+   - Fig 4.pdf - Forest plot of the models for each exposure applying the IPW for each type of model developed. 
+   
+2. model_data
+   - df_cohortegeneral.gorgas.csv
+   - df_subcohorte.gorgas.csv
+   
+4. .gitignore
+5. 07.iptw_gorgas.Rmd
+6. GORGAS.Rproj
+7. README.md
+
 ## R environment and version
 
 ```
