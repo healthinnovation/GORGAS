@@ -17,8 +17,8 @@ The impact of Human population movement (HPM) on the epidemiology of vector-born
    - Fig 4.pdf - Forest plot of the models for each exposure applying the IPW for each type of model developed. 
    
 2. model_data
-   - df_cohortegeneral.gorgas.csv
-   - df_subcohorte.gorgas.csv
+   - df_cohortegeneral.gorgas.csv - cohort data for the IPTW models.
+   - df_subcohorte.gorgas.csv - sub cohort data for the IPTW models.
    
 4. .gitignore
 5. 07.iptw_gorgas.Rmd
