@@ -9,7 +9,7 @@ The impact of Human population movement (HPM) on the epidemiology of vector-born
 
 ## Repository structure
 
-1. Figure 
+1. Figures
    - Fig 1.pdf - Map of the Amazon showing the location of Gamitanacocha and the main communities visited by the participants. 
    - Fig 2.pdf - Cases per species detected by PCR of the 50 participants. 
    - Fig 3.pdf - Cumulative distance and time traveled by subcohort participants and trajectories of selected participants outside the village taking into account the type of mobility pattern performed and the distance from Gamitanacocha 
