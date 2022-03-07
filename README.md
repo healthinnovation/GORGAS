@@ -21,8 +21,8 @@ The impact of Human population movement (HPM) on the epidemiology of vector-born
    - df_subcohorte.gorgas.csv - sub cohort data for the IPTW models.
    
 4. .gitignore
-5. 07.iptw_gorgas.Rmd
-6. GORGAS.Rproj
+5. 07.iptw_gorgas.Rmd - Rmarkdown of the models using IPTW
+6. GORGAS.Rproj - R project file
 7. README.md
 
 ## R environment and version
